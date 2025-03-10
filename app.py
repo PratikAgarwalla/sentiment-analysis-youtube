@@ -8,13 +8,20 @@ from dotenv import load_dotenv
 import nltk
 import matplotlib.pyplot as plt
 import googleapiclient.errors
+from langdetect import detect, DetectorFactory
+
+# Ensure consistent language detection
+DetectorFactory.seed = 0
 
 # Load environment variables
 load_dotenv()
 API_KEY = os.getenv("YOUTUBE_API_KEY")
 
-# Download VADER lexicon
-nltk.download("vader_lexicon")
+# Download VADER lexicon only once
+try:
+    nltk.data.find("sentiment/vader_lexicon.zip")
+except LookupError:
+    nltk.download("vader_lexicon")
 
 # Initialize Sentiment Analyzer
 sia = SentimentIntensityAnalyzer()
@@ -47,7 +54,14 @@ def get_youtube_comments(video_id, max_results=100):
 
             for item in response.get("items", []):
                 raw_comment = item["snippet"]["topLevelComment"]["snippet"]["textDisplay"]
-                comments.append(clean_comment(raw_comment))
+                cleaned_comment = clean_comment(raw_comment)
+
+                # Detect language and keep only English comments
+                try:
+                    if detect(cleaned_comment) == "en":
+                        comments.append(cleaned_comment)
+                except:
+                    pass  # Ignore detection errors
 
             next_page_token = response.get("nextPageToken")
 
@@ -55,7 +69,7 @@ def get_youtube_comments(video_id, max_results=100):
                 break
 
         if not comments:
-            raise ValueError("No comments found for this video.")
+            raise ValueError("No English comments found for this video.")
 
         return comments[:max_results]  # Return only requested count
 
@@ -69,19 +83,14 @@ def get_youtube_comments(video_id, max_results=100):
 # Function to analyze sentiment
 def get_sentiment(comment):
     sentiment_score = sia.polarity_scores(comment)
-    if sentiment_score["compound"] >= 0.05:
-        return "Positive"
-    elif sentiment_score["compound"] <= -0.05:
-        return "Negative"
-    else:
-        return "Neutral"
+    return sentiment_score["compound"], sentiment_score
 
 # Streamlit UI
 st.set_page_config(page_title="YouTube Comment Sentiment Analysis", page_icon="📊")
 st.title("📊 YouTube Comment Sentiment Analysis 🎥")
 
 # Input Fields
-video_url = st.text_input("🔗 Enter YouTube Video URL:")
+video_url = st.text_input("🔗 Enter YouTube Video URL:", value="https://www.youtube.com/watch?v=AKJfakEsgy0")
 max_comments = st.number_input("📊 Max Comments to Analyze:", min_value=10, max_value=100000, step=10, value=100)
 
 if st.button("Analyze Sentiments"):
@@ -97,10 +106,15 @@ if st.button("Analyze Sentiments"):
             comments = get_youtube_comments(video_id, max_comments)
 
             if not comments:
-                st.error("⚠️ No comments found. Try another video.")
+                st.error("⚠️ No English comments found. Try another video.")
             else:
                 df = pd.DataFrame(comments, columns=["Comment"])
-                df["Sentiment"] = df["Comment"].apply(get_sentiment)
+                df["Sentiment Score"], df["Sentiment Breakdown"] = zip(*df["Comment"].apply(get_sentiment))
+
+                # Determine sentiment categories
+                df["Sentiment"] = df["Sentiment Score"].apply(
+                    lambda score: "Positive" if score >= 0.05 else "Negative" if score <= -0.05 else "Neutral"
+                )
 
                 # Count Sentiments
                 sentiment_counts = df["Sentiment"].value_counts()
