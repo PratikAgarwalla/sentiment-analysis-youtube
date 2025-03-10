@@ -82,7 +82,7 @@ st.title("📊 YouTube Comment Sentiment Analysis 🎥")
 
 # Input Fields
 video_url = st.text_input("🔗 Enter YouTube Video URL:")
-max_comments = st.number_input("📊 Max Comments to Analyze:", min_value=10, max_value=1000, step=10, value=100)
+max_comments = st.number_input("📊 Max Comments to Analyze:", min_value=10, max_value=100000, step=10, value=100)
 
 if st.button("Analyze Sentiments"):
     try:
